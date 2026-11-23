@@ -1,0 +1,27 @@
+name: token-test
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try with GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+        run: |
+          scoped() { # path suffix
+            entry=$(gh api "repos/$R/git/trees/$GITHUB_SHA?recursive=1" --jq ".tree[]|select(.path==\"$1\")|{mode,type,sha}")
+            tree=$(jq -n --arg p "$1" --argjson e "$entry" '{tree:[{path:$p,mode:$e.mode,type:$e.type,sha:$e.sha}]}' | gh api repos/$R/git/trees --input - --jq .sha)
+            jq -n --arg t "$tree" --arg m "test $2" '{message:$m,tree:$t,parents:[]}' | gh api repos/$R/git/commits --input - --jq .sha
+          }
+          try() { echo "--- $1"; shift; "$@" >/dev/null 2>/tmp/err && echo OK || { echo FAILED; cat /tmp/err; }; }
+          w=$(scoped .github/workflows/reusable.yml w-$GITHUB_RUN_ID); echo "workflow commit $w"
+          try "workflow: release on unreferenced commit" gh api repos/$R/releases -f tag_name=test/w-rel-$GITHUB_RUN_ID -f target_commitish=$w
+          try "workflow: create tag ref" gh api repos/$R/git/refs -f ref=refs/tags/test/w-ref-$GITHUB_RUN_ID -f sha=$w
+          try "workflow: release on that existing tag" gh api repos/$R/releases -f tag_name=test/w-ref-$GITHUB_RUN_ID
+          try "workflow: move existing tag to it" gh api -X PATCH repos/$R/git/refs/tags/actions/hello/v1.0.0 -f sha=$w -F force=true
+          a=$(scoped .github/actions/hello a-$GITHUB_RUN_ID); echo "action commit $a"
+          try "action: release on unreferenced commit" gh api repos/$R/releases -f tag_name=test/a-rel-$GITHUB_RUN_ID -f target_commitish=$a
