@@ -11,22 +11,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           R: ${{ github.repository }}
+          OLD: 501cfd775de0d38cad77e3c2149c7529e75a30cc
         run: |
           P=.github/workflows/reusable.yml
-          blob() { jq -n --arg c "$1" '{content:$c,encoding:"utf-8"}' | gh api repos/$R/git/blobs --input - --jq .sha; }
-          commit() { # blob parent message
-            tree=$(jq -n --arg p "$P" --arg s "$1" '{tree:[{path:$p,mode:"100644",type:"blob",sha:$s}]}' | gh api repos/$R/git/trees --input - --jq .sha)
+          try() { echo "--- $1"; shift; "$@" 2>/tmp/err && echo OK || { echo FAILED; cat /tmp/err; }; }
+          scoped() { # source-commit parent message
+            entry=$(gh api "repos/$R/git/trees/$1?recursive=1" --jq ".tree[]|select(.path==\"$P\")|{mode,type,sha}")
+            tree=$(jq -n --arg p "$P" --argjson e "$entry" '{tree:[{path:$p,mode:$e.mode,type:$e.type,sha:$e.sha}]}' | gh api repos/$R/git/trees --input - --jq .sha)
             jq -n --arg t "$tree" --arg m "$3" --arg parent "$2" '{message:$m,tree:$t,parents:(if $parent=="" then [] else [$parent] end)}' | gh api repos/$R/git/commits --input - --jq .sha
           }
-          try() { echo "--- $1"; shift; "$@" >/dev/null 2>/tmp/err && echo OK || { echo FAILED; cat /tmp/err; }; }
-          main=$(gh api "repos/$R/git/trees/$GITHUB_SHA?recursive=1" --jq ".tree[]|select(.path==\"$P\")|.sha")
-          novel=$(blob "name: novel $GITHUB_RUN_ID
-          on: workflow_call
-          jobs: {}
-          ")
-          old=$(commit $novel "" "old version, content not on main")
-          try "release: old version, novel content, no parent" gh api repos/$R/releases -f tag_name=test/novel-$GITHUB_RUN_ID -f target_commitish=$old
-          new=$(commit $main $old "new version, main content, parent has other content")
-          try "release: main content on top of a different parent" gh api repos/$R/releases -f tag_name=test/chain-$GITHUB_RUN_ID -f target_commitish=$new
-          new2=$(commit $novel "" "novel again for ref test $GITHUB_RUN_ID")
-          try "create tag ref: novel content" gh api repos/$R/git/refs -f ref=refs/tags/test/novel-ref-$GITHUB_RUN_ID -f sha=$new2
+          x=$(scoped $OLD "" "previous version $GITHUB_RUN_ID"); echo "previous version commit $x"
+          try "tag previous version" gh api repos/$R/git/refs -f ref=refs/tags/test/prev-$GITHUB_RUN_ID -f sha=$x --jq .ref
+          y=$(scoped $GITHUB_SHA $x "new version $GITHUB_RUN_ID"); echo "new version commit $y"
+          try "diff new vs previous" gh api repos/$R/compare/$x...$y --jq '[.files[]|.filename+" "+.status]'
+          try "release new version on unreferenced commit" gh api repos/$R/releases -f tag_name=test/new-$GITHUB_RUN_ID -f target_commitish=$y --jq .tag_name
