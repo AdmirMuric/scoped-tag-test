@@ -1,0 +1,8 @@
+name: hello
+description: test
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "hello from scoped tag"; ls -R "$GITHUB_ACTION_PATH/../.." || true
+# changed
