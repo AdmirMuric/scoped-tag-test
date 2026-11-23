@@ -1,0 +1,7 @@
+name: other
+description: test
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo "OTHER SHOULD NOT RUN"
