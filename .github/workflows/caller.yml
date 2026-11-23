@@ -1,0 +1,14 @@
+name: caller
+on:
+  workflow_dispatch:
+jobs:
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: AdmirMuric/scoped-tag-test/.github/actions/hello@actions/hello/v1
+  reusable:
+    uses: AdmirMuric/scoped-tag-test/.github/workflows/reusable.yml@workflows/reusable/v1.0.1
+  other_through_hello_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: AdmirMuric/scoped-tag-test/.github/actions/other@actions/hello/v1

@@ -1,0 +1,6 @@
+name: caller-bad-workflow
+on:
+  workflow_dispatch:
+jobs:
+  reusable_through_action_tag:
+    uses: AdmirMuric/scoped-tag-test/.github/workflows/reusable.yml@actions/hello/v1
