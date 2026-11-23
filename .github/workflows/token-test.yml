@@ -11,17 +11,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           R: ${{ github.repository }}
-          OLD: 501cfd775de0d38cad77e3c2149c7529e75a30cc
+          X: d4e39f32ee93d2bbc485ddbacf34acd86fa1db78
         run: |
           P=.github/workflows/reusable.yml
           try() { echo "--- $1"; shift; "$@" 2>/tmp/err && echo OK || { echo FAILED; cat /tmp/err; }; }
-          scoped() { # source-commit parent message
-            entry=$(gh api "repos/$R/git/trees/$1?recursive=1" --jq ".tree[]|select(.path==\"$P\")|{mode,type,sha}")
-            tree=$(jq -n --arg p "$P" --argjson e "$entry" '{tree:[{path:$p,mode:$e.mode,type:$e.type,sha:$e.sha}]}' | gh api repos/$R/git/trees --input - --jq .sha)
-            jq -n --arg t "$tree" --arg m "$3" --arg parent "$2" '{message:$m,tree:$t,parents:(if $parent=="" then [] else [$parent] end)}' | gh api repos/$R/git/commits --input - --jq .sha
-          }
-          x=$(scoped $OLD "" "previous version $GITHUB_RUN_ID"); echo "previous version commit $x"
-          try "tag previous version" gh api repos/$R/git/refs -f ref=refs/tags/test/prev-$GITHUB_RUN_ID -f sha=$x --jq .ref
-          y=$(scoped $GITHUB_SHA $x "new version $GITHUB_RUN_ID"); echo "new version commit $y"
-          try "diff new vs previous" gh api repos/$R/compare/$x...$y --jq '[.files[]|.filename+" "+.status]'
-          try "release new version on unreferenced commit" gh api repos/$R/releases -f tag_name=test/new-$GITHUB_RUN_ID -f target_commitish=$y --jq .tag_name
+          entry=$(gh api "repos/$R/git/trees/$GITHUB_SHA?recursive=1" --jq ".tree[]|select(.path==\"$P\")|{mode,type,sha}")
+          try "create tree with main's content" bash -c "jq -n --arg p $P --argjson e '$entry' '{tree:[{path:\$p,mode:\$e.mode,type:\$e.type,sha:\$e.sha}]}' | gh api repos/$R/git/trees --input - --jq .sha > /tmp/tree"
+          tree=$(cat /tmp/tree)
+          try "create commit on top of previous version" bash -c "jq -n --arg t $tree --arg p $X '{message:\"new version\",tree:\$t,parents:[\$p]}' | gh api repos/$R/git/commits --input - --jq .sha > /tmp/y"
+          y=$(cat /tmp/y); echo "new version commit $y"
+          try "diff new vs previous" gh api repos/$R/compare/$X...$y --jq '[.files[]|.filename+" "+.status]'
+          try "release on unreferenced commit" gh api repos/$R/releases -f tag_name=test/new-rel-$GITHUB_RUN_ID -f target_commitish=$y --jq .tag_name
+          try "create tag ref instead" gh api repos/$R/git/refs -f ref=refs/tags/test/new-ref-$GITHUB_RUN_ID -f sha=$y --jq .ref
+          try "release on that existing tag" gh api repos/$R/releases -f tag_name=test/new-ref-$GITHUB_RUN_ID --jq .tag_name
+          try "move a floating tag to it" gh api -X PATCH repos/$R/git/refs/tags/test/prev-real -f sha=$y -F force=true --jq .object.sha
